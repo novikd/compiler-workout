@@ -79,7 +79,8 @@ let arithmetic_operators  = [ ("+" , ( +   ));
 let available_operators   = bool_operators @ relation_operators @ arithmetic_operators;;
 
 (* Returns specific operator function by it's name *)
-let operatorByName op = snd @@ find (fun x -> op == (fst x)) available_operators;;
+let operatorByName op = try snd @@ find (fun x -> op = (fst x)) available_operators
+                        with Not_found -> failwith (Printf.sprintf "Unknown operator: " ^ op);;
 
 (* Expression evaluator
 
