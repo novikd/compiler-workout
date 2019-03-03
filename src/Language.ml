@@ -124,7 +124,7 @@ module Stmt =
     let rec eval (s, _in, _out) stmt =
       match stmt with
         | Read x -> (Expr.update x (hd _in) s, tl _in, _out)
-        | Write e -> (s, _in, Expr.eval s e :: _out)
+        | Write e -> (s, _in, _out @ [Expr.eval s e])
         | Assign (x, e) -> (Expr.update x (Expr.eval s e) s, _in, _out)
         | Seq (op1, op2) -> eval (eval (s, _in, _out) op1) op2;;
 
