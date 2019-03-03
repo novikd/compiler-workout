@@ -136,7 +136,7 @@ module Stmt =
         | name:IDENT ":=" exp:!(Expr.expr) { Assign (name, exp)}
       ;
 
-      parse: statement | line:statement ";" tail:parse { Seq (line, tail) }
+      parse: line:statement ";" tail:parse { Seq (line, tail) } | statement
     )
 
   end
