@@ -1,10 +1,11 @@
-open GT       
+open GT
 open Language
-       
+open List
+
 (* The type for the stack machine instructions *)
 @type insn =
 (* binary operator                 *) | BINOP of string
-(* put a constant on the stack     *) | CONST of int                 
+(* put a constant on the stack     *) | CONST of int
 (* read to stack                   *) | READ
 (* write from stack                *) | WRITE
 (* load a variable to the stack    *) | LD    of string
@@ -27,8 +28,19 @@ type config = int list * Stmt.config
 
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
-*)                         
-let rec eval env conf prog = failwith "Not yet implemented"
+*)
+let rec eval env cnfg p =
+  let eval_step (stack, (s, i, o)) instr =
+    match instr with
+      | BINOP op -> ((Language.Expr.operatorByName op) (hd @@ tl stack) (hd stack) :: (tl @@ tl stack), (s, i, o))
+      | CONST n  -> (n :: stack, (s, i, o))
+      | READ     -> (hd i :: stack, (s, tl i, o))
+      | WRITE    -> (tl stack, (s, i, o @ [hd stack]))
+      | LD name  -> (s name :: stack, (s, i, o))
+      | ST name  -> (tl stack, (Language.Expr.update name (hd stack) s, i, o)) in
+  match p with
+  | [] -> cnfg
+  | x :: xs -> eval (eval_step cnfg x) xs;;
 
 (* Top-level evaluation
 
