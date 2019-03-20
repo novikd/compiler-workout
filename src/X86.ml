@@ -84,14 +84,14 @@ let generate_comparing cmp_op output lhs rhs =
     | "==" -> "e"
     | "!=" -> "ne"
     | _    -> failwith (Printf.sprintf "Unknown operator %s" cmp_op)
-  in [Mov (lhs, edx); set_zero eax; Binop ("cmp", edx, rhs); Set (op_suffix, "%al"); Mov (eax, output)]
+  in [Mov (lhs, edx); set_zero eax; Binop ("cmp", rhs, edx); Set (op_suffix, "%al"); Mov (eax, output)]
 
 let compile_binop env instuction =
   let rhs, lhs, env = env#pop2 in
   let s, env = env#allocate in
   let asm = match instuction with
     | "+" | "-" | "*" -> [Mov (lhs, eax);
-                          Binop (instuction, eax, rhs);
+                          Binop (instuction, rhs, eax);
                           Mov (eax, s)]
     | "&&" -> [set_zero eax;
                set_zero edx;
@@ -107,14 +107,14 @@ let compile_binop env instuction =
                Binop ("cmp", eax, L 0);
                Set ("ne", "%dl");
                Mov (edx, s)]
-    | "<" | ">" | "<=" | "=>" | "==" | "!=" -> generate_comparing instuction s lhs rhs
+    | "<" | ">" | "<=" | ">=" | "==" | "!=" -> generate_comparing instuction s lhs rhs
     | "/" | "%" -> let output = if instuction = "/" then eax else edx in
                                   [Mov (lhs, eax);
                                    set_zero edx;
                                    Cltd;
                                    IDiv rhs;
                                    Mov (output, s)]
-    | _ -> failwith "Unsupported binary operation"
+    | _ -> failwith ("Unsupported binary operation" ^ instuction)
   in env, asm
 
 (* Symbolic stack machine evaluator
