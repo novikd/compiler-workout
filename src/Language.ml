@@ -110,12 +110,12 @@ module Stmt =
     (* read into the variable           *) | Read   of string
     (* write the value of an expression *) | Write  of Expr.t
     (* assignment                       *) | Assign of string * Expr.t
-    (* composition                      *) | Seq    of t * t 
+    (* composition                      *) | Seq    of t * t
     (* empty statement                  *) | Skip
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
-    (* loop with a post-condition       *) (* add yourself *)  with show
-                                                                    
+    (* loop with a post-condition       *) | Repeat of t * Expr.t  with show
+
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list
 
@@ -127,10 +127,21 @@ module Stmt =
     *)
     let rec eval (s, _in, _out) stmt =
       match stmt with
-        | Read x -> (Expr.update x (hd _in) s, tl _in, _out)
-        | Write e -> (s, _in, _out @ [Expr.eval s e])
-        | Assign (x, e) -> (Expr.update x (Expr.eval s e) s, _in, _out)
-        | Seq (op1, op2) -> eval (eval (s, _in, _out) op1) op2;;
+        | Read x               -> (Expr.update x (hd _in) s, tl _in, _out)
+        | Write e              -> (s, _in, _out @ [Expr.eval s e])
+        | Assign (x, e)        -> (Expr.update x (Expr.eval s e) s, _in, _out)
+        | Seq (op1, op2)       -> eval (eval (s, _in, _out) op1) op2
+        | Skip                 -> (s, _in, _out)
+        | If (e, stmt1, stmt2) -> if (Expr.eval s e) != 0
+                                  then eval (s, _in, _out) stmt1
+                                  else eval (s, _in, _out) stmt2
+        | While (e, stmt)      -> if (Expr.eval s e) != 0
+                                  then eval (eval (s, _in, _out) stmt) @@ While (e, stmt)
+                                  else (s, _in, _out)
+        | Repeat (stmt, e)     -> let s, _in, _out = eval (s, _in, _out) stmt in
+                                    if (Expr.eval s e) != 0
+                                    then eval (s, _in, _out) @@ Repeat (stmt, e)
+                                    else (s, _in, _out);;
 
     (* Statement parser *)
     ostap (
@@ -138,6 +149,15 @@ module Stmt =
           "read" "(" name:IDENT ")" { Read name }
         | "write" "(" exp:!(Expr.expr) ")" { Write exp }
         | name:IDENT ":=" exp:!(Expr.expr) { Assign (name, exp)}
+        | "if" exp:!(Expr.expr) "then" stmt1:parse "else" stmt2:else_stmt { If (exp, stmt1, stmt2) }
+        | "while" exp:!(Expr.expr) "do" stmt:parse "od" { While (exp, stmt) }
+        | "repeat" stmt:parse "until" exp:!(Expr.expr) { Repeat (stmt, exp) }
+      ;
+
+      else_stmt:
+          "fi" { Skip }
+        | "else" stmt:parse "fi" { stmt }
+        | "elif" exp:!(Expr.expr) "then" stmt1:parse stmt2:else_stmt { If (exp, stmt1, stmt2) }
       ;
 
       parse: line:statement ";" tail:parse { Seq (line, tail) } | statement
