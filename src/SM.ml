@@ -41,14 +41,14 @@ let rec eval env cnfg p =
       | ST name          -> (tl stack, (Language.Expr.update name (hd stack) s, i, o))
       | LABEL _          -> (stack, (s, i, o))
       | JMP label        -> eval_jmp (stack, (s, i, o)) label
-      | CJMP cond, label -> match stack with
+      | CJMP (cond, label) -> match stack with
                               | value :: tail -> if cond = "z" && value = 0 || cond = "nz" && value != 0
                                                  then eval_jmp (tail, (s, i, o)) label
                                                  else (stack, (s, i, o))
-      | _                -> "Unsupported stack operation" in
+      | _                -> failwith "Unsupported stack operation" in
   match p with
   | [] -> cnfg
-  | x :: xs -> eval (eval_step cnfg x) xs;;
+  | x :: xs -> eval env (eval_step cnfg x) xs;;
 
 (* Top-level evaluation
 
@@ -66,6 +66,13 @@ let run p i =
   let m = make_map M.empty p in
   let (_, (_, _, o)) = eval (object method labeled l = M.find l m end) ([], (Expr.empty, i, [])) p in o
 
+class compilation_env =
+  object (self)
+    val label_number = 0
+
+    method generate_label = ".L" ^ string_of_int label_number, {< label_number = label_number + 1 >}
+  end
+
 (* Stack machine compiler
 
      val compile : Language.Stmt.t -> prg
@@ -74,13 +81,47 @@ let run p i =
    stack machine
 *)
 let rec compile =
-  let rec expr = function
-  | Expr.Var   x          -> [LD x]
-  | Expr.Const n          -> [CONST n]
-  | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
-  in
-  function
-  | Stmt.Seq (s1, s2)  -> compile s1 @ compile s2
-  | Stmt.Read x        -> [READ; ST x]
-  | Stmt.Write e       -> expr e @ [WRITE]
-  | Stmt.Assign (x, e) -> expr e @ [ST x]
+  let rec compile_expr = function
+    | Expr.Var   x          -> [LD x]
+    | Expr.Const n          -> [CONST n]
+    | Expr.Binop (op, x, y) -> compile_expr x @ compile_expr y @ [BINOP op] in
+  let rec compile_stmt env =
+    let rec compile_if_stmt env exit_label = function
+      | Stmt.Seq (s1, s2)   -> let env, code'  = compile_stmt env s1 in
+                               let env, code'' = compile_if_stmt env exit_label s2 in
+                                env, code' @ code''
+      | Stmt.If (e, s1, s2) -> let else_label, env  = env#generate_label in
+                               let env, then_branch = compile_if_stmt env exit_label s1 in
+                               let env, else_branch = compile_if_stmt env exit_label s2 in
+                                env, compile_expr e
+                                     @ [CJMP ("z", else_label)]
+                                     @ then_branch
+                                     @ [JMP (exit_label)]
+                                     @ else_branch
+      | stmt                -> compile_stmt env stmt in
+    function
+    | Stmt.Seq (s1, s2)  -> let env, code'  = compile_stmt env s1 in
+                            let env, code'' = compile_stmt env s2 in
+                              env, code' @ code''
+    | Stmt.Read x        -> env, [READ; ST x]
+    | Stmt.Write e       -> env, compile_expr e @ [WRITE]
+    | Stmt.Assign (x, e) -> env, compile_expr e @ [ST x]
+    | Stmt.Skip          -> env, []
+    | Stmt.If (e, s1, s2) -> let exit_label, env = env#generate_label in
+                              compile_if_stmt env exit_label @@ Stmt.If (e, s1, s2)
+    | Stmt.While (e, s)  -> let loop_label, env = env#generate_label in
+                            let cond_label, env = env#generate_label in
+                            let env, loop_body  = compile_stmt env s in
+                              env, [ JMP (cond_label);
+                                     LABEL (loop_label)]
+                                     @ loop_body
+                                     @ [LABEL cond_label]
+                                     @ compile_expr e
+                                     @ [CJMP ("nz", loop_label)]
+    | Stmt.Repeat (s, e) -> let loop_label, env = env#generate_label in
+                            let env, loop_body  = compile_stmt env s in
+                              env, [ LABEL loop_label]
+                                     @ loop_body
+                                     @ compile_expr e
+                                     @ [CJMP ("z", loop_label)] in
+  function stmt -> snd @@ compile_stmt (new compilation_env) stmt
