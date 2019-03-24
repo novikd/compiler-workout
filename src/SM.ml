@@ -30,14 +30,22 @@ type config = int list * Stmt.config
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)
 let rec eval env cnfg p =
+  let eval_jmp cfg label = eval env cfg @@ env#labeled label in
   let eval_step (stack, (s, i, o)) instr =
     match instr with
-      | BINOP op -> ((Language.Expr.operatorByName op) (hd @@ tl stack) (hd stack) :: (tl @@ tl stack), (s, i, o))
-      | CONST n  -> (n :: stack, (s, i, o))
-      | READ     -> (hd i :: stack, (s, tl i, o))
-      | WRITE    -> (tl stack, (s, i, o @ [hd stack]))
-      | LD name  -> (s name :: stack, (s, i, o))
-      | ST name  -> (tl stack, (Language.Expr.update name (hd stack) s, i, o)) in
+      | BINOP op         -> ((Language.Expr.operatorByName op) (hd @@ tl stack) (hd stack) :: (tl @@ tl stack), (s, i, o))
+      | CONST n          -> (n :: stack, (s, i, o))
+      | READ             -> (hd i :: stack, (s, tl i, o))
+      | WRITE            -> (tl stack, (s, i, o @ [hd stack]))
+      | LD name          -> (s name :: stack, (s, i, o))
+      | ST name          -> (tl stack, (Language.Expr.update name (hd stack) s, i, o))
+      | LABEL _          -> (stack, (s, i, o))
+      | JMP label        -> eval_jmp (stack, (s, i, o)) label
+      | CJMP cond, label -> match stack with
+                              | value :: tail -> if cond = "z" && value = 0 || cond = "nz" && value != 0
+                                                 then eval_jmp (tail, (s, i, o)) label
+                                                 else (stack, (s, i, o))
+      | _                -> "Unsupported stack operation" in
   match p with
   | [] -> cnfg
   | x :: xs -> eval (eval_step cnfg x) xs;;
