@@ -149,7 +149,7 @@ module Stmt =
           "read" "(" name:IDENT ")" { Read name }
         | "write" "(" exp:!(Expr.expr) ")" { Write exp }
         | name:IDENT ":=" exp:!(Expr.expr) { Assign (name, exp)}
-        | "if" exp:!(Expr.expr) "then" stmt1:parse "else" stmt2:else_stmt { If (exp, stmt1, stmt2) }
+        | "if" exp:!(Expr.expr) "then" stmt1:parse stmt2:else_stmt { If (exp, stmt1, stmt2) }
         | "while" exp:!(Expr.expr) "do" stmt:parse "od" { While (exp, stmt) }
         | "repeat" stmt:parse "until" exp:!(Expr.expr) { Repeat (stmt, exp) }
       ;
