@@ -54,7 +54,7 @@ let show instr =
   | "!!"  -> "orl"
   | "^"   -> "xorl"
   | "cmp" -> "cmpl"
-  | _     -> failwith "unknown binary operator"
+  | op    -> failwith "unknown binary operator: " ^ op
   in
   let opnd = function
   | R i -> regs.(i)
@@ -108,9 +108,9 @@ let compile_binop env instuction =
                Binop ("&&", eax, edx);
                Mov (edx, s)]
     | "!!" -> [set_zero edx;
-               Mov (lhs, eax);
-               Binop ("||", eax, rhs);
-               Binop ("cmp", eax, L 0);
+               Mov (rhs, eax);
+               Binop ("!!", lhs, eax);
+               Binop ("cmp", L 0, eax);
                Set ("ne", "%dl");
                Mov (edx, s)]
     | "<" | ">" | "<=" | ">=" | "==" | "!=" -> generate_comparing instuction s lhs rhs
