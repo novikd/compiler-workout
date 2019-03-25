@@ -135,12 +135,12 @@ module Stmt =
         | If (e, stmt1, stmt2) -> if (Expr.eval s e) != 0
                                   then eval (s, _in, _out) stmt1
                                   else eval (s, _in, _out) stmt2
-        | While (e, stmt)      -> if (Expr.eval s e) != 0
-                                  then eval (eval (s, _in, _out) stmt) @@ While (e, stmt)
+        | While (e, body)      -> if (Expr.eval s e) != 0
+                                  then eval (eval (s, _in, _out) body) @@ stmt
                                   else (s, _in, _out)
-        | Repeat (stmt, e)     -> let s, _in, _out = eval (s, _in, _out) stmt in
-                                    if (Expr.eval s e) != 0
-                                    then eval (s, _in, _out) @@ Repeat (stmt, e)
+        | Repeat (body, e)     -> let s, _in, _out = eval (s, _in, _out) body in
+                                    if (Expr.eval s e) = 0
+                                    then eval (s, _in, _out) @@ stmt
                                     else (s, _in, _out);;
 
     (* Statement parser *)
@@ -149,9 +149,11 @@ module Stmt =
           "read" "(" name:IDENT ")" { Read name }
         | "write" "(" exp:!(Expr.expr) ")" { Write exp }
         | name:IDENT ":=" exp:!(Expr.expr) { Assign (name, exp)}
+        | "skip" { Skip }
         | "if" exp:!(Expr.expr) "then" stmt1:parse stmt2:else_stmt { If (exp, stmt1, stmt2) }
         | "while" exp:!(Expr.expr) "do" stmt:parse "od" { While (exp, stmt) }
         | "repeat" stmt:parse "until" exp:!(Expr.expr) { Repeat (stmt, exp) }
+        | "for" s1:statement "," exp:!(Expr.expr) "," s2:parse "do" s3:parse "od" { Seq (s1, While (exp, Seq (s3, s2))) }
       ;
 
       else_stmt:
