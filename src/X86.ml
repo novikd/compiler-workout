@@ -135,6 +135,14 @@ let compile_binop env instuction =
     | _ -> failwith ("Unsupported binary operation" ^ instuction)
   in env, asm
 
+let ensure_mem_mem_mov source destination =
+    match source with
+      | R _ | L _ -> [Mov (source, destination)]
+      | _         -> match destination with
+                      | R _ -> [Mov (source, destination)]
+                      | _   -> [Mov (source, eax);
+                                Mov (eax, destination)]
+
 (* Symbolic stack machine evaluator
 
      compile : env -> prg -> env * instr list
@@ -155,10 +163,10 @@ let rec compile env = function
                       env, [Call "Lread"; Mov (eax, s)]
     | LD name     -> let s, env = (env#global name)#allocate in
                      let var_name = env#loc name in
-                      env, [Mov (M var_name, s)]
+                      env, (ensure_mem_mem_mov (M var_name) s)
     | ST name     -> let s, env = (env#global name)#pop in
                      let var_name = env#loc name in
-                      env, [Mov (s, M var_name)]
+                      env, (ensure_mem_mem_mov s (M var_name))
     | LABEL l     -> env, [Label l]
     | JMP l       -> env, [Jmp l]
     | CJMP (c, l) -> let s, env = env#pop in
