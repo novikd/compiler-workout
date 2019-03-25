@@ -81,6 +81,15 @@ open SM
 
 let set_zero operand = Binop ("^", operand, operand)
 
+let ensure_mem_mem_op op lhs rhs =
+  match lhs, rhs with
+  | (R _, _) | (L _, _) -> rhs, [op lhs rhs]
+  | (_, R _)            -> rhs, [op lhs rhs]
+  | _                   -> edx, [ Mov (rhs, edx);
+                                  op lhs edx]
+
+let create_binop op x y = Binop (op, x, y)
+
 let generate_comparing cmp_op output lhs rhs =
   let op_suffix = match cmp_op with
     | "<"  -> "l"
@@ -89,31 +98,34 @@ let generate_comparing cmp_op output lhs rhs =
     | ">=" -> "ge"
     | "==" -> "e"
     | "!=" -> "ne"
-    | _    -> failwith (Printf.sprintf "Unknown operator %s" cmp_op)
-  in [Mov (lhs, edx); set_zero eax; Binop ("cmp", rhs, edx); Set (op_suffix, "%al"); Mov (eax, output)]
+    | _    -> failwith (Printf.sprintf "Unknown operator %s" cmp_op) in
+  let _, asm = ensure_mem_mem_op (create_binop "cmp") lhs rhs in
+      [set_zero eax;]
+      @ asm
+      @ [ Set (op_suffix, "%al");
+          Mov (eax, output)]
 
 let compile_binop env instuction =
   let rhs, lhs, env = env#pop2 in
   let s, env = env#allocate in
   let asm = match instuction with
-    | "+" | "-" | "*" -> [Mov (lhs, eax);
-                          Binop (instuction, rhs, eax);
-                          Mov (eax, s)]
+    | "+" | "-" | "*" -> let output, asm = ensure_mem_mem_op (create_binop instuction) rhs lhs in
+                          asm @ [Mov (output, s)]
     | "&&" -> [set_zero eax;
                set_zero edx;
-               Binop ("cmp", L 0, lhs);
-               Set ("ne", "%al");
                Binop ("cmp", L 0, rhs);
+               Set ("ne", "%al");
+               Binop ("cmp", L 0, lhs);
                Set ("ne", "%dl");
                Binop ("&&", eax, edx);
                Mov (edx, s)]
     | "!!" -> [set_zero edx;
-               Mov (rhs, eax);
-               Binop ("!!", lhs, eax);
+               Mov (lhs, eax);
+               Binop ("!!", rhs, eax);
                Binop ("cmp", L 0, eax);
                Set ("ne", "%dl");
                Mov (edx, s)]
-    | "<" | ">" | "<=" | ">=" | "==" | "!=" -> generate_comparing instuction s lhs rhs
+    | "<" | ">" | "<=" | ">=" | "==" | "!=" -> generate_comparing instuction s rhs lhs
     | "/" | "%" -> let output = if instuction = "/" then eax else edx in
                                   [Mov (lhs, eax);
                                    set_zero edx;
