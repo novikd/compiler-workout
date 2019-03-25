@@ -106,7 +106,7 @@ let compile_binop env instuction =
                Binop ("cmp", L 0, rhs);
                Set ("ne", "%dl");
                Binop ("&&", eax, edx);
-               Mov (eax, s)]
+               Mov (edx, s)]
     | "!!" -> [set_zero edx;
                Mov (lhs, eax);
                Binop ("||", eax, rhs);
