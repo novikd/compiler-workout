@@ -29,26 +29,27 @@ type config = int list * Stmt.config
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)
-let rec eval env cnfg p =
+let rec eval env (stack, (s, i, o)) p =
   let eval_jmp cfg label = eval env cfg @@ env#labeled label in
-  let eval_step (stack, (s, i, o)) instr =
+  match p with
+  | [] -> (stack, (s, i, o))
+  | instr :: code ->
+    let eval_code c = eval env c code in
     match instr with
-      | BINOP op         -> ((Language.Expr.operatorByName op) (hd @@ tl stack) (hd stack) :: (tl @@ tl stack), (s, i, o))
-      | CONST n          -> (n :: stack, (s, i, o))
-      | READ             -> (hd i :: stack, (s, tl i, o))
-      | WRITE            -> (tl stack, (s, i, o @ [hd stack]))
-      | LD name          -> (s name :: stack, (s, i, o))
-      | ST name          -> (tl stack, (Language.Expr.update name (hd stack) s, i, o))
-      | LABEL _          -> (stack, (s, i, o))
+      | BINOP op         -> eval_code ((Language.Expr.operatorByName op) (hd @@ tl stack) (hd stack) :: (tl @@ tl stack), (s, i, o))
+      | CONST n          -> eval_code (n :: stack, (s, i, o))
+      | READ             -> eval_code (hd i :: stack, (s, tl i, o))
+      | WRITE            -> eval_code (tl stack, (s, i, o @ [hd stack]))
+      | LD name          -> eval_code (s name :: stack, (s, i, o))
+      | ST name          -> eval_code (tl stack, (Language.Expr.update name (hd stack) s, i, o))
+      | LABEL _          -> eval_code (stack, (s, i, o))
       | JMP label        -> eval_jmp (stack, (s, i, o)) label
       | CJMP (cond, label) -> match stack with
                               | value :: tail -> if cond = "z" && value = 0 || cond = "nz" && value != 0
                                                  then eval_jmp (tail, (s, i, o)) label
-                                                 else (stack, (s, i, o))
-      | _                -> failwith "Unsupported stack operation" in
-  match p with
-  | [] -> cnfg
-  | x :: xs -> eval env (eval_step cnfg x) xs;;
+                                                 else eval_code (tail, (s, i, o))
+                              | _             -> failwith "Unexpected empty stack"
+      | _                -> failwith "Unsupported stack operation";;
 
 (* Top-level evaluation
 
@@ -92,11 +93,12 @@ let rec compile =
                                 env, code' @ code''
       | Stmt.If (e, s1, s2) -> let else_label, env  = env#generate_label in
                                let env, then_branch = compile_if_stmt env exit_label s1 in
-                               let env, else_branch = compile_if_stmt env exit_label s2 in
+                               let env, else_branch = compile_stmt env s2 in
                                 env, compile_expr e
                                      @ [CJMP ("z", else_label)]
                                      @ then_branch
                                      @ [JMP (exit_label)]
+                                     @ [LABEL else_label]
                                      @ else_branch
       | stmt                -> compile_stmt env stmt in
     function
@@ -108,7 +110,8 @@ let rec compile =
     | Stmt.Assign (x, e) -> env, compile_expr e @ [ST x]
     | Stmt.Skip          -> env, []
     | Stmt.If (e, s1, s2) -> let exit_label, env = env#generate_label in
-                              compile_if_stmt env exit_label @@ Stmt.If (e, s1, s2)
+                             let env, code = compile_if_stmt env exit_label @@ Stmt.If (e, s1, s2) in
+                              env, code @ [LABEL exit_label]
     | Stmt.While (e, s)  -> let loop_label, env = env#generate_label in
                             let cond_label, env = env#generate_label in
                             let env, loop_body  = compile_stmt env s in
