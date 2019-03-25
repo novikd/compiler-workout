@@ -134,19 +134,24 @@ let rec compile env = function
 | [] -> env, []
 | instr :: code ->
   let env, asm = match instr with
-    | CONST n   -> let s, env =  env#allocate in
-                    env, [Mov (L n, s)]
-    | BINOP op  -> compile_binop env op
-    | WRITE     -> let s, env = env#pop in
-                    env, [Push s; Call "Lwrite"; Pop eax]
-    | READ      -> let s, env = env#allocate in
-                    env, [Call "Lread"; Mov (eax, s)]
-    | LD name   -> let s, env = (env#global name)#allocate in
-                   let var_name = env#loc name in
-                    env, [Mov (M var_name, s)]
-    | ST name   -> let s, env = (env#global name)#pop in
-                   let var_name = env#loc name in
-                    env, [Mov (s, M var_name)]
+    | CONST n     -> let s, env =  env#allocate in
+                      env, [Mov (L n, s)]
+    | BINOP op    -> compile_binop env op
+    | WRITE       -> let s, env = env#pop in
+                      env, [Push s; Call "Lwrite"; Pop eax]
+    | READ        -> let s, env = env#allocate in
+                      env, [Call "Lread"; Mov (eax, s)]
+    | LD name     -> let s, env = (env#global name)#allocate in
+                     let var_name = env#loc name in
+                      env, [Mov (M var_name, s)]
+    | ST name     -> let s, env = (env#global name)#pop in
+                     let var_name = env#loc name in
+                      env, [Mov (s, M var_name)]
+    | LABEL l     -> env, [Label l]
+    | JMP l       -> env, [Jmp l]
+    | CJMP (c, l) -> let s, env = env#pop in
+                      env, [Binop ("cmp", L 0, s);
+                            CJmp (c, l)]
     | _ -> failwith "Not supported yet" in
   let env, asm' = compile env code in
     env, asm @ asm'
@@ -235,4 +240,3 @@ let build stmt name =
   close_out outf;
   let inc = try Sys.getenv "RC_RUNTIME" with _ -> "../runtime" in
   Sys.command (Printf.sprintf "gcc -m32 -o %s %s/runtime.o %s.s" name inc name)
-
