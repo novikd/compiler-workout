@@ -217,8 +217,14 @@ let rec compile env = function
 (* A set of strings *)
 module S = Set.Make (String)
 
+let list_init n =
+  let rec create = function
+    | 0 -> []
+    | n -> n :: create @@ n - 1 in
+  List.rev @@ create n
+
 (* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+let make_assoc l = List.combine l (list_init (List.length l))
 
 class env =
   object (self)
