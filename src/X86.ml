@@ -147,6 +147,12 @@ let ensure_mem_mem_mov source destination =
                       | _   -> [Mov (source, eax);
                                 Mov (eax, destination)]
 
+let list_init n =
+  let rec create = function
+    | 0 -> []
+    | n -> n :: (create @@ n - 1) in
+  List.rev @@ create n
+
 (* Symbolic stack machine evaluator
 
      compile : env -> prg -> env * instr list
@@ -157,6 +163,8 @@ let ensure_mem_mem_mov source destination =
 let rec compile env = function
 | [] -> env, []
 | instr :: code ->
+  let push_all_regs = List.map (fun x -> Push (R (x - 1))) @@ list_init num_of_regs in
+  let pop_all_reg   = List.map (fun x -> Pop (R (x - 1))) @@ List.rev @@ list_init num_of_regs in
   let rec pop_symbolic_args env n = if n = 0
                                 then env, []
                                 else let s, env = env#pop in
@@ -179,20 +187,18 @@ let rec compile env = function
     | CJMP (c, l) -> let s, env = env#pop in
                       env, [Binop ("cmp", L 0, s);
                             CJmp (c, l)]
-    | BEGIN (id, params, locals) -> let push_regs = List.map (fun reg -> Push reg) env#live_registers in
-                                    let prolog    = [ Push ebp;
+    | BEGIN (id, params, locals) -> let prolog    = [ Push ebp;
                                                       Mov (esp, ebp)] in
                                     let env       = env#enter id params locals in
                                       env,  prolog
-                                            @ push_regs
+                                            @ push_all_regs
                                             @ [Binop ("-", M ("$" ^ env#lsize), esp)]
-    | END                        -> let pop_regs = List.map (fun reg -> Pop reg) @@ List.rev env#live_registers in
-                                    let epilogue  = [  Mov (ebp, esp);
+    | END                        -> let epilogue  = [  Mov (ebp, esp);
                                                       Pop ebp;
                                                       Ret] in
                                     let meta = [Meta (Printf.sprintf "\t.set %s, %d" env#lsize (env#allocated * word_size))] in
                                       env, [Label env#epilogue]
-                                            @ pop_regs
+                                            @ pop_all_reg
                                             @ epilogue
                                             @ meta
     | CALL  (id, n, returns)     -> let env, args          = pop_symbolic_args env n in
@@ -216,12 +222,6 @@ let rec compile env = function
 
 (* A set of strings *)
 module S = Set.Make (String)
-
-let list_init n =
-  let rec create = function
-    | 0 -> []
-    | n -> n :: (create @@ n - 1) in
-  List.rev @@ create n
 
 (* Environment implementation *)
 let make_assoc l = List.combine l (list_init (List.length l))
