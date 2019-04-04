@@ -220,7 +220,7 @@ module S = Set.Make (String)
 let list_init n =
   let rec create = function
     | 0 -> []
-    | n -> n :: create @@ n - 1 in
+    | n -> n :: (create @@ n - 1) in
   List.rev @@ create n
 
 (* Environment implementation *)
