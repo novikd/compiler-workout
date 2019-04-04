@@ -183,8 +183,8 @@ let rec compile env = function
                                     let prolog    = [ Push ebp;
                                                       Mov (esp, ebp)] in
                                     let env       = env#enter id params locals in
-                                      env,  push_regs
-                                            @ prolog
+                                      env,  prolog
+                                            @ push_regs
                                             @ [Binop ("-", M ("$" ^ env#lsize), esp)]
     | END                        -> let pop_regs = List.map (fun reg -> Pop reg) @@ List.rev env#live_registers in
                                     let epilogue  = [  Mov (ebp, esp);
