@@ -166,10 +166,10 @@ let rec compile env = function
   let push_all_regs = List.map (fun x -> Push (R x)) @@ list_init num_of_regs in
   let pop_all_reg   = List.map (fun x -> Pop (R x)) @@ List.rev @@ list_init num_of_regs in
   let rec pop_symbolic_args env n = if n = 0
-                                then env, []
-                                else let s, env = env#pop in
-                                     let env, args = pop_symbolic_args env (n - 1) in
-                                      env, s :: args in
+                                    then env, []
+                                    else let s, env = env#pop in
+                                         let env, args = pop_symbolic_args env (n - 1) in
+                                          env, args @ [s] in
   let env, asm = match instr with
     | CONST n     -> let s, env =  env#allocate in
                       env, [Mov (L n, s)]
