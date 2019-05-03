@@ -150,7 +150,7 @@ let ensure_mem_mem_mov source destination =
 let list_init n =
   let rec create = function
     | 0 -> []
-    | n -> n :: (create @@ n - 1) in
+    | n -> (n - 1) :: (create @@ n - 1) in
   List.rev @@ create n
 
 (* Symbolic stack machine evaluator
@@ -163,8 +163,8 @@ let list_init n =
 let rec compile env = function
 | [] -> env, []
 | instr :: code ->
-  let push_all_regs = List.map (fun x -> Push (R (x - 1))) @@ list_init num_of_regs in
-  let pop_all_reg   = List.map (fun x -> Pop (R (x - 1))) @@ List.rev @@ list_init num_of_regs in
+  let push_all_regs = List.map (fun x -> Push (R x)) @@ list_init num_of_regs in
+  let pop_all_reg   = List.map (fun x -> Pop (R x)) @@ List.rev @@ list_init num_of_regs in
   let rec pop_symbolic_args env n = if n = 0
                                 then env, []
                                 else let s, env = env#pop in

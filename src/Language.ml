@@ -141,7 +141,7 @@ module Expr =
 
       primary:
         n:DECIMAL {Const n}
-      | id:IDENT "(" args:(!(parse))* ")" { Call (id, args) }
+      | id:IDENT "(" args:!(Util.list0 parse) ")" { Call (id, args) }
       | x:IDENT   {Var x}
       | -"(" parse -")"
     )
@@ -206,7 +206,7 @@ module Stmt =
     (* Statement parser *)
     ostap (
       call_statement:
-        func_id:IDENT "(" args:(!(Expr.parse))* ")" { Call (func_id, args) }
+        func_id:IDENT "(" args:!(Util.list0 Expr.parse) ")" { Call (func_id, args) }
       ;
 
       return_statement:
@@ -245,9 +245,10 @@ module Definition =
     type t = string * (string list * string list * Stmt.t)
 
     ostap (
+      variable_: IDENT;
       parse:
-        "fun" func_id:IDENT "(" params:(IDENT)* ")"
-        locals:(%"local" (IDENT)*)?
+        "fun" func_id:IDENT "(" params:!(Util.list0 variable_) ")"
+        locals:(%"local" !(Util.list variable_))?
         "{" body:!(Stmt.parse) "}"
         { func_id, (params, default [] locals, body) }
     )
