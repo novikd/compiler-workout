@@ -160,7 +160,7 @@ let list_init n =
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let rec compile env code =
+let rec compile env =
   let suffix = function
   | "<"  -> "l"
   | "<=" -> "le"
@@ -184,10 +184,6 @@ let rec compile env code =
     | CONST n     -> let s, env =  env#allocate in
                       env, [Mov (L n, s)]
     | BINOP op    -> compile_binop env op
-    | WRITE       -> let s, env = env#pop in
-                      env, [Push s; Call "Lwrite"; Pop eax]
-    | READ        -> let s, env = env#allocate in
-                      env, [Call "Lread"; Mov (eax, s)]
     | LD name     -> let s, env = (env#global name)#allocate in
                       env, (ensure_mem_mem_mov (env#loc name) s)
     | ST name     -> let s, env = (env#global name)#pop in

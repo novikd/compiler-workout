@@ -47,20 +47,22 @@ let rec eval env ((cstack, stack, ((s, i, o) as c)) as conf) prg =
   | instr :: code ->
     let eval_code c = eval env c code in
     match instr with
-      | BINOP op         -> eval_code (cstack,
-                                      (Language.Expr.to_func op) (hd @@ tl stack) (hd stack) :: (tl @@ tl stack),
-                                      c)
-      | CONST n          -> eval_code (cstack, n :: stack, c)
-      | READ             -> eval_code (cstack, hd i :: stack, (s, tl i, o))
-      | WRITE            -> eval_code (cstack, tl stack, (s, i, o @ [hd stack]))
-      | LD name          -> eval_code (cstack, Language.State.eval s name :: stack, c)
-      | ST name          -> eval_code (cstack, tl stack, (Language.State.update name (hd stack) s, i, o))
+      | BINOP op         -> let rhs::lhs::stack = stack in
+                            let result = Value.of_int @@ (Expr.to_func op) (Value.to_int lhs) (Value.to_int rhs) in
+                              eval_code (cstack, result :: stack, c)
+      | CONST n          -> eval_code (cstack, Value.of_int n :: stack, c)
+      | STRING s         -> eval_code (cstack, Value.of_string s :: stack, c)
+      | LD name          -> eval_code (cstack, State.eval s name :: stack, c)
+      | ST name          -> eval_code (cstack, List.tl stack, (State.update name (List.hd stack) s, i, o))
+      | STA (name, n)    -> let (value::rest), stack = split (n + 1) stack in
+                              eval_code (cstack, stack, (Stmt.update s name value rest, i, o))
       | LABEL _          -> eval_code conf
       | JMP label        -> eval_jmp conf label
-      | CJMP (cond, label) -> let value, tail = hd stack, tl stack in
-                                 if cond = "z" && value = 0 || cond = "nz" && value != 0
-                                 then eval_jmp (cstack, tail, (s, i, o)) label
-                                 else eval_code (cstack, tail, (s, i, o))
+      | CJMP (cond, label) -> let value::tail = stack in
+                              let value = Value.to_int value in
+                                if cond = "z" && value = 0 || cond = "nz" && value != 0
+                                then eval_jmp (cstack, tail, (s, i, o)) label
+                                else eval_code (cstack, tail, (s, i, o))
       | BEGIN (_, params, locals) -> let func_scope = Language.State.enter s (params @ locals) in
                                   let func_state, stack = List.fold_left
                                                           (fun (state, value::tail) name -> (Language.State.update name value state, tail))
@@ -74,8 +76,9 @@ let rec eval env ((cstack, stack, ((s, i, o) as c)) as conf) prg =
                                                                                          (Language.State.leave s state_before_call, i, o))
                                                                                         pr_before_call
                                     | _                                         -> ([], stack, (s, i, o)))
-      | CALL (id, _, _)        -> let func = env#labeled id in
-                                    eval env ((code, s)::cstack, stack, (s, i, o)) func
+      | CALL (id, n, is_function) -> if env#is_label id
+                                     then eval env ((code, s)::cstack, stack, (s, i, o)) @@ env#labeled id
+                                     else eval_code @@ env#builtin (cstack, stack, (s, i, o)) id n @@ not is_function
       | _                      -> failwith "Unsupported stack operation";;
 
 (* Top-level evaluation
@@ -100,7 +103,7 @@ let run p i =
          method builtin (cstack, stack, (st, i, o)) f n p =
            let f = match f.[0] with 'L' -> String.sub f 1 (String.length f - 1) | _ -> f in
            let args, stack' = split n stack in
-           let (st, i, o, r) = Language.Builtin.eval (st, i, o, None) (List.rev args) f in
+           let (st, i, o, r) = Language.Builtin.eval (st, i, o, None) args f in
            let stack'' = if p then stack' else let Some r = r in r::stack' in
            Printf.printf "Builtin: %s\n";
            (cstack, stack'', (st, i, o))
@@ -129,7 +132,12 @@ let rec compile =
   let rec compile_expr = function
     | Expr.Var   x          -> [LD x]
     | Expr.Const n          -> [CONST n]
+    | Expr.Array a          -> let compiled_exprs = List.concat @@ List.map compile_expr @@ List.rev a in
+                                compiled_exprs @ [ CALL ("$array", List.length a, true) ]
+    | Expr.String s         -> [STRING s]
     | Expr.Binop (op, x, y) -> compile_expr x @ compile_expr y @ [BINOP op]
+    | Expr.Elem (e1, e2)    -> compile_expr e2 @ compile_expr e1 @ [ CALL ("$elem", 2, true) ]
+    | Expr.Length e         -> compile_expr e @ [ CALL ("$length", 1, true) ]
     | Expr.Call (id, args)  -> let compiled_args = List.concat @@ List.map compile_expr @@ List.rev args in
                                 compiled_args @ [CALL (id, List.length args, true)] in
   let rec compile_stmt env =
@@ -151,9 +159,12 @@ let rec compile =
     | Stmt.Seq (s1, s2)  -> let env, code'  = compile_stmt env s1 in
                             let env, code'' = compile_stmt env s2 in
                               env, code' @ code''
-    | Stmt.Read x        -> env, [READ; ST x]
-    | Stmt.Write e       -> env, compile_expr e @ [WRITE]
-    | Stmt.Assign (x, e) -> env, compile_expr e @ [ST x]
+    | Stmt.Assign (x, indexes, e) -> (match indexes with
+                                     | [] -> env, compile_expr e @ [ ST x ]
+                                     | _  -> let compiled_indexes = List.concat @@ List.rev @@ List.map compile_expr indexes in
+                                             let compiled_expr = compile_expr e in
+                                              env, compiled_indexes @ compile_expr e @ [ STA (x, List.length indexes) ])
+
     | Stmt.Skip          -> env, []
     | Stmt.If (e, s1, s2) -> let exit_label, env = env#generate_label in
                              let env, code = compile_if_stmt env exit_label @@ Stmt.If (e, s1, s2) in

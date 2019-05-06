@@ -154,14 +154,31 @@ module Expr =
        an returns resulting configuration
     *)
     let rec eval env ((st, i, o, r) as conf) expr =
-      let get_result (_, _, _, Some res)        = res in
+      let get_result (_, _, _, Some res)        = Value.to_int res in
       let return_with_conf (s, _i, _o, _) value = (s, _i, _o, Some value) in
       match expr with
-      | Const n          -> return_with_conf conf n
+      | Const n          -> return_with_conf conf @@ Value.of_int n
       | Var   x          -> return_with_conf conf @@ State.eval st x
+      | Array a          -> let (st, i, o, r) as conf = eval_list env conf a in
+                             return_with_conf conf @@ Value.of_array r
+      | String s         -> return_with_conf conf @@ Value.of_string s
       | Binop (op, x, y) -> let lhs = eval env conf x in
                             let rhs = eval env lhs  y in
-                              return_with_conf rhs @@ to_func op (get_result lhs) (get_result rhs)
+                              return_with_conf rhs @@ Value.of_int @@ to_func op (get_result lhs) (get_result rhs)
+      | Elem (arr, idx)  -> let (st, i, o, Some idx) = eval env conf idx in
+                            let (st, i, o, Some arr) = eval env (st, i, o, None) arr in
+                            let index = Value.to_int idx in
+                            let value = (match arr with
+                            | Array a  -> List.nth a index
+                            | String s -> Value.of_int @@ Char.code s.[index]
+                            | _        -> failwith "Can't apply subscript operation") in
+                              (st, i, o, Some value)
+      | Length e         -> let (st, i, o, Some r) as conf = eval env conf e in
+                            let len = (match r with
+                            | Array a  -> List.length a
+                            | String s -> String.length s
+                            | _        -> failwith "Can't apply length operation") in
+                              return_with_conf conf @@ Value.of_int len
       | Call (id, args)  -> let s, i, o, args = List.fold_left
                                                 (fun (s, i, o, args) arg -> let s, i, o, Some r = eval env (s, i, o, None) arg in
                                                                               s, i, o, args @ [r])
@@ -204,11 +221,24 @@ module Expr =
 	     )
 	     primary);
 
-      primary:
+      base:
         n:DECIMAL {Const n}
+      | c:CHAR { Const (Char.code c) }
+      | str:STRING { String (String.sub str 1 @@ String.length str - 2) }
       | id:IDENT "(" args:!(Util.list0 parse) ")" { Call (id, args) }
-      | x:IDENT   {Var x}
+      | x:IDENT   { Var x }
       | -"(" parse -")"
+      | "[" exprs:!(Util.list0 parse) "]" { Array exprs }
+      ;
+
+      indexed:
+        e:base indexes:(-"[" parse -"]")* { List.fold_left (fun x y -> Elem (x, y)) e indexes }
+      ;
+
+      primary:
+        e:indexed len:(".length")? { match len with
+                                      | Some _ -> Length e
+                                      | _      -> e }
     )
 
   end
@@ -257,27 +287,27 @@ module Stmt =
       let (<!>)                   = make_continuation in
       let reverse_expr e          = Expr.Binop ("==", e, Expr.Const 0) in
       match stmt with
-        | Read x               -> eval env (State.update x (hd i) st, tl i, o, None) Skip k
-        | Write e              -> let st, i, o, Some r = Expr.eval env conf e in
-                                    eval env (st, i, o @ [r], None) Skip k
-        | Assign (x, e)        -> let st, i, o, Some r = Expr.eval env conf e in
-                                    eval env (State.update x r st, i, o, Some r) Skip k
-        | Seq (op1, op2)       -> eval env conf (op2 <!> k) op1
-        | Skip                 -> (match k with
+        | Assign (x, indexes, e) -> let st, i, o, indexes = Expr.eval_list env conf indexes in
+                                    let st, i, o, Some r = Expr.eval env (st, i, o, None) e in
+                                    eval env (update st x r indexes, i, o, Some r) Skip k
+        | Seq (op1, op2)         -> eval env conf (op2 <!> k) op1
+        | Skip                   -> (match k with
                                     | Skip -> conf
                                     | _    -> eval env conf Skip k)
-        | If (e, stmt1, stmt2) -> let st, i, o, Some r = Expr.eval env conf e in
-                                    eval env (st, i, o, None) k (if r != 0 then stmt1 else stmt2)
-        | While (e, body)      -> let st, i, o, Some r = Expr.eval env conf e in
-                                    if r != 0
-                                    then eval env (st, i, o, None) (stmt <!> k) body
-                                    else eval env (st, i, o, None) Skip k
-        | Repeat (body, e)     -> eval env conf (While (reverse_expr e, body) <!> k) body
-        | Return e             -> (match e with
+        | If (e, stmt1, stmt2)   -> let st, i, o, Some r = Expr.eval env conf e in
+                                    let r = Value.to_int r in
+                                      eval env (st, i, o, None) k (if r != 0 then stmt1 else stmt2)
+        | While (e, body)        -> let st, i, o, Some r = Expr.eval env conf e in
+                                    let r = Value.to_int r in
+                                      if r != 0
+                                      then eval env (st, i, o, None) (stmt <!> k) body
+                                      else eval env (st, i, o, None) Skip k
+        | Repeat (body, e)       -> eval env conf (While (reverse_expr e, body) <!> k) body
+        | Return e               -> (match e with
                                     | Some e -> Expr.eval env conf e
                                     | _      -> st, i, o, None)
-        | Call (func, args)    -> eval env (Expr.eval env conf (Expr.Call (func, args))) Skip k
-        | _ -> failwith "Unsupported operation";;
+        | Call (func, args)      -> eval env (Expr.eval env conf (Expr.Call (func, args))) Skip k
+        | _                      -> failwith "Unsupported operation";;
 
     (* Statement parser *)
     ostap (
@@ -290,9 +320,7 @@ module Stmt =
       ;
 
       statement:
-          "read" "(" name:IDENT ")" { Read name }
-        | "write" "(" exp:!(Expr.parse) ")" { Write exp }
-        | name:IDENT ":=" exp:!(Expr.parse) { Assign (name, exp)}
+          name:IDENT indexes:(-"[" !(Expr.parse) -"]")* ":=" exp:!(Expr.parse) { Assign (name, indexes, exp)}
         | "skip" { Skip }
         | "if" exp:!(Expr.parse) "then" stmt1:parse stmt2:else_stmt { If (exp, stmt1, stmt2) }
         | "while" exp:!(Expr.parse) "do" stmt:parse "od" { While (exp, stmt) }
