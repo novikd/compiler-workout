@@ -207,7 +207,11 @@ let rec compile env =
                                             @ pop_all_reg
                                             @ epilogue
                                             @ meta
-    | CALL  (id, n, returns)     -> let env, args          = pop_symbolic_args env n in
+    | CALL  (id, n, returns)     -> let id = (match id with
+                                              | "read"  -> "Lread"
+                                              | "write" -> "Lwrite"
+                                              | _       -> id) in
+                                    let env, args          = pop_symbolic_args env n in
                                     let push_args          = List.map (fun x -> Push x) args in
                                     let env, gather_result = if returns
                                                              then let s, env = env#allocate in
